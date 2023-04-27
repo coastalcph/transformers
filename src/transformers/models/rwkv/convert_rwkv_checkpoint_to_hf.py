@@ -46,7 +46,6 @@ HIDEN_SIZE_MAPPING = {
     "14B": 5120,
 }
 
-
 def convert_state_dict(state_dict):
     state_dict_keys = list(state_dict.keys())
     for name in state_dict_keys:
@@ -78,7 +77,7 @@ def convert_state_dict(state_dict):
     return state_dict
 
 
-def convert_rmkv_checkpoint_to_hf_format(repo_id, checkpoint_file, output_dir, size=None, tokenizer_file=None):
+def convert_rmkv_checkpoint_to_hf_format(repo_id, checkpoint_file, model_file, output_dir, size=None, tokenizer_file=None):
     # 1. If possible, build the tokenizer.
     if tokenizer_file is None:
         print("No `--tokenizer_file` provided, we will only convert the model.")
@@ -90,7 +89,12 @@ def convert_rmkv_checkpoint_to_hf_format(repo_id, checkpoint_file, output_dir, s
 
     # 2. Build the config
     possible_sizes = list(NUM_HIDDEN_LAYERS_MAPPING.keys())
-    if size is None:
+    if size is not None:
+        if type(size) is tuple:
+            num_hidden_layers, hidden_size = size
+        elif size not in possible_sizes:
+            raise ValueError(f"`size` should be one of {possible_sizes}, got {size}.")
+    else:
         # Try to infer size from the checkpoint name
         for candidate in possible_sizes:
             if candidate in checkpoint_file:
@@ -98,18 +102,20 @@ def convert_rmkv_checkpoint_to_hf_format(repo_id, checkpoint_file, output_dir, s
                 break
         if size is None:
             raise ValueError("Could not infer the size, please provide it with the `--size` argument.")
-    if size not in possible_sizes:
-        raise ValueError(f"`size` should be one of {possible_sizes}, got {size}.")
-
+        num_hidden_layers = HIDEN_SIZE_MAPPING[size]
+        hidden_size = HIDEN_SIZE_MAPPING[size]
     config = RwkvConfig(
         vocab_size=vocab_size,
-        num_hidden_layers=NUM_HIDDEN_LAYERS_MAPPING[size],
-        hidden_size=HIDEN_SIZE_MAPPING[size],
+        num_hidden_layers=num_hidden_layers,
+        hidden_size=hidden_size,
     )
     config.save_pretrained(output_dir)
 
     # 3. Download model file then convert state_dict
-    model_file = hf_hub_download(repo_id, checkpoint_file)
+    if repo_id is not None and checkpoint_file is not None:
+        model_file = hf_hub_download(repo_id, checkpoint_file)
+    else:
+        model_file = model_file
     state_dict = torch.load(model_file, map_location="cpu")
     state_dict = convert_state_dict(state_dict)
 
@@ -144,11 +150,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Required parameters
     parser.add_argument(
-        "--repo_id", default=None, type=str, required=True, help="Repo ID from which to pull the checkpoint."
+        "--repo_id", default=None, type=str, required=False, help="Repo ID from which to pull the checkpoint."
     )
     parser.add_argument(
-        "--checkpoint_file", default=None, type=str, required=True, help="Name of the checkpoint file in the repo."
+        "--checkpoint_file", default=None, type=str, required=False, help="Name of the checkpoint file in the repo."
     )
+    parser.add_argument(
+        "--model_file", default=None, type=str, required=False)
     parser.add_argument(
         "--output_dir", default=None, type=str, required=True, help="Where to save the converted model."
     )
@@ -164,8 +172,22 @@ if __name__ == "__main__":
         type=str,
         help="Size of the model. Will be inferred from the `checkpoint_file` if not passed.",
     )
+    parser.add_argument(
+        "--hidden_size",
+        default=256,
+        type=int
+    )
+    parser.add_argument(
+        "--num_hidden_layers",
+        default=12,
+        type=int
+    )
 
     args = parser.parse_args()
+    if args.size is not None:
+        size = args.size
+    else:
+        size = (args.num_hidden_layers, args.hidden_size)
     convert_rmkv_checkpoint_to_hf_format(
-        args.repo_id, args.checkpoint_file, args.output_dir, size=args.size, tokenizer_file=args.tokenizer_file
+        args.repo_id, args.checkpoint_file, args.model_file, args.output_dir, size=size, tokenizer_file=args.tokenizer_file
     )

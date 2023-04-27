@@ -3258,7 +3258,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin, PushToHubMix
 
         Currently, it doesn't handle missing_keys, unexpected_keys, mismatched_keys. It can't handle deepspeed.
         """
-
+        
         _move_model_to_meta(model, loaded_state_dict_keys, start_prefix)
         state_dict = load_state_dict(resolved_archive_file)
         error_msgs = _load_state_dict_into_meta_model(model, state_dict, loaded_state_dict_keys, start_prefix)
